@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AmiGo — Комментарии к песням</title>
+    <meta
+      name="description"
+      content="MVP для GitHub Pages: фиктивная текущая песня, комментарии хранятся в браузере (localStorage)."
+    />
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <div class="bg"></div>
+    <main class="container">
+      <header class="topbar">
+        <div class="brand">
+          <div class="logo">A</div>
+          <div class="brandText">
+            <div class="title">AmiGo</div>
+            <div class="subtitle">Комментарии к текущей песне</div>
+          </div>
+        </div>
+        <div class="pill" id="songSource">GitHub Pages (MVP)</div>
+      </header>
+
+      <section class="hero">
+        <div class="nowPlaying">
+          <div class="label">Сейчас играет</div>
+          <div class="song" id="songTitle">—</div>
+          <div class="meta">
+            <span class="dot"></span>
+            <span id="songHint">Обновляется автоматически</span>
+          </div>
+        </div>
+        <div class="glowCard">
+          <div class="stat">
+            <div class="statValue" id="commentCount">0</div>
+            <div class="statLabel">комментариев</div>
+          </div>
+          <div class="divider"></div>
+          <div class="stat">
+            <div class="statValue" id="statusText">LIVE</div>
+            <div class="statLabel">лента</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panelHeader">
+          <div class="panelTitle">Обсуждение</div>
+          <div class="panelHint">Новые сообщения появляются сразу</div>
+        </div>
+
+        <div class="composer">
+          <form id="commentForm" class="composerForm">
+            <div class="row">
+              <label class="field">
+                <span class="fieldLabel">Имя</span>
+                <input
+                  id="userInput"
+                  class="input"
+                  type="text"
+                  placeholder="например, Андрей"
+                  maxlength="80"
+                  required
+                />
+              </label>
+              <div class="field grow">
+                <span class="fieldLabel">Комментарий</span>
+                <input
+                  id="textInput"
+                  class="input"
+                  type="text"
+                  placeholder="Что думаешь о треке?"
+                  maxlength="2000"
+                  required
+                />
+              </div>
+            </div>
+            <div class="actions">
+              <button class="btn" type="submit" id="sendBtn">
+                <span class="btnGlow"></span>
+                Отправить
+              </button>
+              <div class="tiny" id="errorBox"></div>
+            </div>
+          </form>
+        </div>
+
+        <div class="list" id="commentsList">
+          <div class="skeleton" id="loadingSkeleton">
+            <div class="shimmer"></div>
+          </div>
+        </div>
+      </section>
+
+      <footer class="footer">
+        <div class="footerText">
+          MVP для GitHub Pages • без внешних API • комментарии в localStorage
+        </div>
+      </footer>
+    </main>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
+

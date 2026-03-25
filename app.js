@@ -1,6 +1,7 @@
 const STORAGE_PROFILES_KEY = "amigo_profiles_v1";
 const STORAGE_CURRENT_PROFILE_ID_KEY = "amigo_current_profile_id";
 const STORAGE_DM_MESSAGES_KEY = "amigo_dm_messages_v1";
+const STORAGE_RECENTS_PREFIX = "amigo_recents_v1:";
 
 const CHANNEL_NAME = "amigo_demo_channel_v1";
 
@@ -8,8 +9,8 @@ const state = {
   tabId: crypto?.randomUUID ? crypto.randomUUID() : String(Date.now()) + "_" + Math.random().toString(16).slice(2),
   me: null,
   peer: null,
-  matchShared: 0,
   convoId: null,
+  matchShared: 0,
   messages: [],
 };
 
@@ -27,11 +28,12 @@ function safeJsonParse(str, fallback) {
   }
 }
 
+function normalizeSpaces(s) {
+  return String(s || "").trim().replace(/\s+/g, " ");
+}
+
 function normalizeInterest(s) {
-  return String(s || "")
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, " ");
+  return normalizeSpaces(s).toLowerCase();
 }
 
 function parseInterests(raw) {
@@ -43,40 +45,59 @@ function parseInterests(raw) {
   return Array.from(new Set(norm)).slice(0, 20);
 }
 
-function readProfiles() {
-  const raw = localStorage.getItem(STORAGE_PROFILES_KEY);
-  const arr = safeJsonParse(raw || "[]", []);
-  const list = Array.isArray(arr) ? arr : [];
-  return list
-    .filter((p) => p && typeof p === "object")
-    .map((p) => ({
-      id: String(p.id || ""),
-      name: String(p.name || "").trim(),
-      interests: Array.isArray(p.interests) ? p.interests.map(normalizeInterest).filter(Boolean) : [],
-      created_at_ms: Number(p.created_at_ms || 0),
-    }))
-    .filter((p) => p.id && p.name);
+function hashString(str) {
+  let h = 2166136261;
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
 }
 
-function writeProfiles(list) {
-  localStorage.setItem(STORAGE_PROFILES_KEY, JSON.stringify(list));
+function avatarGradient(seed) {
+  const h = hashString(String(seed || "user").trim().toLowerCase());
+  const hue1 = h % 360;
+  const hue2 = (hue1 + 42) % 360;
+  return `linear-gradient(135deg, hsl(${hue1} 90% 55%), hsl(${hue2} 90% 55%))`;
 }
 
-function createProfile(name, interestsRaw) {
-  const nameClean = String(name || "").trim().replace(/\s+/g, " ");
-  const interests = parseInterests(interestsRaw);
-  if (!nameClean) throw new Error("Укажи ник.");
-  if (!interests.length) throw new Error("Добавь хотя бы один интерес.");
-  const profile = {
-    id: crypto?.randomUUID ? crypto.randomUUID() : String(Date.now()) + "_" + Math.random().toString(16).slice(2),
-    name: nameClean.slice(0, 80),
-    interests,
-    created_at_ms: Date.now(),
-  };
-  const all = readProfiles();
-  all.push(profile);
-  writeProfiles(all);
-  return profile;
+function initials(name) {
+  const n = normalizeSpaces(name);
+  if (!n) return "?";
+  const parts = n.split(" ").filter(Boolean);
+  const a = parts[0]?.[0] || "?";
+  const b = parts.length > 1 ? parts[parts.length - 1][0] : "";
+  return (a + b).toUpperCase();
+}
+
+function fmtTime(ms) {
+  try {
+    const d = new Date(ms);
+    const pad = (n) => String(n).padStart(2, "0");
+    return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  } catch {
+    return "";
+  }
+}
+
+function openModal() {
+  const m = el("profileModal");
+  m.classList.add("open");
+  m.setAttribute("aria-hidden", "false");
+}
+
+function closeModal() {
+  const m = el("profileModal");
+  m.classList.remove("open");
+  m.setAttribute("aria-hidden", "true");
+}
+
+function showError(msg) {
+  el("errorBox").textContent = msg || "";
+}
+
+function setSending(sending) {
+  el("sendBtn").disabled = sending;
 }
 
 function getCurrentProfileId() {
@@ -93,6 +114,88 @@ function setCurrentProfileId(id) {
   } catch {}
 }
 
+function readProfiles() {
+  const raw = localStorage.getItem(STORAGE_PROFILES_KEY);
+  const arr = safeJsonParse(raw || "[]", []);
+  const list = Array.isArray(arr) ? arr : [];
+  return list
+    .filter((p) => p && typeof p === "object")
+    .map((p) => ({
+      id: String(p.id || ""),
+      name: normalizeSpaces(p.name || ""),
+      interests: Array.isArray(p.interests) ? p.interests.map(normalizeInterest).filter(Boolean) : [],
+      created_at_ms: Number(p.created_at_ms || 0),
+    }))
+    .filter((p) => p.id && p.name);
+}
+
+function writeProfiles(list) {
+  localStorage.setItem(STORAGE_PROFILES_KEY, JSON.stringify(list));
+}
+
+function createProfile(name, interestsRaw) {
+  const nameClean = normalizeSpaces(name).slice(0, 80);
+  const interests = parseInterests(interestsRaw);
+  if (!nameClean) throw new Error("Укажи ник.");
+  if (!interests.length) throw new Error("Добавь хотя бы один интерес.");
+  const profile = {
+    id: crypto?.randomUUID ? crypto.randomUUID() : String(Date.now()) + "_" + Math.random().toString(16).slice(2),
+    name: nameClean,
+    interests,
+    created_at_ms: Date.now(),
+  };
+  const all = readProfiles();
+  all.push(profile);
+  writeProfiles(all);
+  return profile;
+}
+
+function profilesMap() {
+  const m = new Map();
+  for (const p of readProfiles()) m.set(p.id, p);
+  return m;
+}
+
+function recentsKey(meId) {
+  return `${STORAGE_RECENTS_PREFIX}${meId}`;
+}
+
+function readRecents(meId) {
+  try {
+    const raw = localStorage.getItem(recentsKey(meId));
+    const arr = safeJsonParse(raw || "[]", []);
+    return Array.isArray(arr) ? arr.map(String) : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeRecents(meId, ids) {
+  try {
+    localStorage.setItem(recentsKey(meId), JSON.stringify(ids.slice(0, 50)));
+  } catch {}
+}
+
+function addRecent(meId, peerId) {
+  const ids = readRecents(meId).filter((x) => x && x !== peerId);
+  ids.unshift(peerId);
+  writeRecents(meId, ids);
+}
+
+function dmConvoId(aId, bId) {
+  const a = String(aId);
+  const b = String(bId);
+  const [x, y] = a < b ? [a, b] : [b, a];
+  return `dm:${x}:${y}`;
+}
+
+function parseConvoIds(convoId) {
+  const parts = String(convoId || "").split(":");
+  if (parts.length !== 3) return null;
+  if (parts[0] !== "dm") return null;
+  return { a: parts[1], b: parts[2] };
+}
+
 function readAllDmMessages() {
   const raw = localStorage.getItem(STORAGE_DM_MESSAGES_KEY);
   const obj = safeJsonParse(raw || "{}", {});
@@ -103,20 +206,13 @@ function writeAllDmMessages(obj) {
   localStorage.setItem(STORAGE_DM_MESSAGES_KEY, JSON.stringify(obj));
 }
 
-function dmConvoId(aId, bId) {
-  const a = String(aId);
-  const b = String(bId);
-  const [x, y] = a < b ? [a, b] : [b, a];
-  return `dm:${x}:${y}`;
-}
-
 function loadDmMessages(convoId) {
   const all = readAllDmMessages();
   const list = Array.isArray(all[convoId]) ? all[convoId] : [];
   return list
     .filter((m) => m && typeof m === "object")
-    .sort((a, b) => (b.created_at_ms || 0) - (a.created_at_ms || 0))
-    .slice(0, 200);
+    .sort((a, b) => (a.created_at_ms || 0) - (b.created_at_ms || 0))
+    .slice(-200);
 }
 
 function addDmMessage(convoId, fromProfile, toProfile, text) {
@@ -134,88 +230,90 @@ function addDmMessage(convoId, fromProfile, toProfile, text) {
     created_at_ms: Date.now(),
   };
   list.push(msg);
-  all[convoId] = list.slice(-400);
+  all[convoId] = list.slice(-500);
   writeAllDmMessages(all);
   return msg;
 }
 
-function hashString(str) {
-  let h = 2166136261;
-  for (let i = 0; i < str.length; i++) {
-    h ^= str.charCodeAt(i);
-    h = Math.imul(h, 16777619);
+function sharedInterestCount(a, b) {
+  const sa = new Set((a?.interests || []).map(normalizeInterest));
+  const sb = new Set((b?.interests || []).map(normalizeInterest));
+  let shared = 0;
+  for (const x of sa) if (sb.has(x)) shared += 1;
+  return shared;
+}
+
+function findBestPeer() {
+  if (!state.me) throw new Error("Сначала создай профиль.");
+  const map = profilesMap();
+  const profiles = Array.from(map.values()).filter((p) => p.id !== state.me.id);
+  if (!profiles.length) throw new Error("Нет других профилей. Создай второй (в другой вкладке).");
+
+  let best = [];
+  let bestScore = -1;
+  for (const p of profiles) {
+    const score = sharedInterestCount(state.me, p);
+    if (score > bestScore) {
+      bestScore = score;
+      best = [p];
+    } else if (score === bestScore) {
+      best.push(p);
+    }
   }
-  return h >>> 0;
+  if (bestScore <= 0) throw new Error("Нет совпадений по интересам. Добавь интересы или создай другой профиль.");
+  const pick = best[Math.floor(Math.random() * best.length)];
+  return { peer: pick, score: bestScore };
 }
 
-function avatarStyle(user) {
-  const h = hashString((user || "").trim().toLowerCase() || "user");
-  const hue1 = h % 360;
-  const hue2 = (hue1 + 42) % 360;
-  return `linear-gradient(135deg, hsl(${hue1} 95% 60%), hsl(${hue2} 95% 55%))`;
-}
-
-function initials(user) {
-  const u = (user || "").trim();
-  if (!u) return "?";
-  const parts = u.split(/\s+/).filter(Boolean);
-  const a = parts[0]?.[0] || "?";
-  const b = parts.length > 1 ? parts[parts.length - 1][0] : "";
-  return (a + b).toUpperCase();
-}
-
-function fmtTime(ms) {
+function broadcast(type, payload) {
   try {
-    const d = new Date(ms);
-    const pad = (n) => String(n).padStart(2, "0");
-    return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
-  } catch {
-    return "";
-  }
-}
-
-function showError(msg) {
-  el("errorBox").textContent = msg || "";
-}
-
-function setSending(sending) {
-  el("sendBtn").disabled = sending;
+    channel?.postMessage({ type, tabId: state.tabId, at: Date.now(), ...payload });
+  } catch {}
 }
 
 function setMe(profile) {
   state.me = profile;
-  el("mePill").textContent = profile ? profile.name : "Гость";
-  if (profile) setCurrentProfileId(profile.id);
-  // при смене профиля сбрасываем текущий диалог
-  if (state.peer) setPeer(null, 0);
+  setCurrentProfileId(profile ? profile.id : "");
+
+  const meAva = el("meAvatar");
+  meAva.textContent = profile ? initials(profile.name) : "A";
+  meAva.style.background = avatarGradient(profile ? profile.id : "me");
+  el("meName").textContent = profile ? profile.name : "Гость";
+  el("meSub").textContent = profile ? `${profile.interests.length} интересов` : "Профиль не выбран";
   renderProfileSelect();
   renderMyInterests();
+  if (state.peer) setPeer(null, 0);
+  renderChatList();
   updateChatEnabled();
 }
 
 function setPeer(profile, sharedCount) {
   state.peer = profile;
   state.matchShared = sharedCount || 0;
-  el("peerTitle").textContent = profile ? profile.name : "—";
-  el("matchScore").textContent = profile ? String(state.matchShared) : "—";
-  el("presenceText").textContent = profile ? `${state.matchShared} общих интересов` : "подбор по интересам";
-  el("chatHint").textContent = profile ? "пиши сообщение — оно появится во всех вкладках" : "выбери собеседника кнопкой сверху";
+  state.convoId = state.me && state.peer ? dmConvoId(state.me.id, state.peer.id) : null;
 
-  if (state.me && state.peer) {
-    state.convoId = dmConvoId(state.me.id, state.peer.id);
-    el("loadingSkeleton").style.display = "block";
+  const peerAva = el("peerAvatar");
+  peerAva.textContent = profile ? initials(profile.name) : "?";
+  peerAva.style.background = avatarGradient(profile ? profile.id : "peer");
+
+  el("peerTitle").textContent = profile ? profile.name : "Выбери собеседника";
+  el("presenceText").textContent = profile
+    ? `${state.matchShared} общих интересов`
+    : "Нажми «Найти» или выбери чат слева";
+  el("matchScore").textContent = profile ? String(state.matchShared) : "—";
+
+  if (state.convoId) {
     state.messages = loadDmMessages(state.convoId);
-    renderMessages();
   } else {
-    state.convoId = null;
     state.messages = [];
-    renderMessages();
   }
+  renderMessages();
+  renderChatList();
   updateChatEnabled();
 }
 
 function updateChatEnabled() {
-  const ok = Boolean(state.me && state.peer);
+  const ok = Boolean(state.me && state.peer && state.convoId);
   el("textInput").disabled = !ok;
   el("sendBtn").disabled = !ok;
 }
@@ -252,99 +350,177 @@ function renderMyInterests() {
   }
 }
 
-function renderMessages() {
-  const list = el("messagesList");
-  const skeleton = el("loadingSkeleton");
-  if (skeleton) skeleton.style.display = "none";
+function convoLastInfo(convoId, list) {
+  if (!Array.isArray(list) || !list.length) return { at: 0, text: "" };
+  const last = list.reduce((acc, m) => ((m?.created_at_ms || 0) > (acc?.created_at_ms || 0) ? m : acc), list[0]);
+  return { at: Number(last.created_at_ms || 0), text: String(last.text || "") };
+}
 
-  const items = state.messages || [];
-  el("msgCount").textContent = String(items.length);
-  list.querySelectorAll(".item, .empty").forEach((n) => n.remove());
+function listMyChats() {
+  if (!state.me) return [];
+  const map = profilesMap();
+  const all = readAllDmMessages();
+  const entries = new Map(); // peerId -> { peer, lastAt, lastText }
 
-  if (!items.length) {
-    const empty = document.createElement("div");
-    empty.className = "item empty";
-    empty.innerHTML = `
-      <div class="avatar" style="background: rgba(255,255,255,0.08)">☆</div>
-      <div class="content">
-        <div class="line1">
-          <div class="user">Пока тихо</div>
-          <div class="time"></div>
-        </div>
-        <div class="text">Будь первым — напиши сообщение в этой комнате.</div>
-      </div>
-    `;
-    list.appendChild(empty);
+  for (const [convoId, list] of Object.entries(all)) {
+    const ids = parseConvoIds(convoId);
+    if (!ids) continue;
+    if (ids.a !== state.me.id && ids.b !== state.me.id) continue;
+    const otherId = ids.a === state.me.id ? ids.b : ids.a;
+    const other = map.get(otherId);
+    if (!other) continue;
+    const last = convoLastInfo(convoId, list);
+    entries.set(otherId, { peer: other, lastAt: last.at, lastText: last.text });
+  }
+
+  for (const otherId of readRecents(state.me.id)) {
+    if (otherId === state.me.id) continue;
+    const other = map.get(otherId);
+    if (!other) continue;
+    if (!entries.has(otherId)) entries.set(otherId, { peer: other, lastAt: 0, lastText: "" });
+  }
+
+  return Array.from(entries.values()).sort((a, b) => (b.lastAt || 0) - (a.lastAt || 0) || a.peer.name.localeCompare(b.peer.name, "ru"));
+}
+
+function renderChatList() {
+  const host = el("chatList");
+  host.querySelectorAll(".chatItem").forEach((n) => n.remove());
+  if (!state.me) {
+    const stub = document.createElement("div");
+    stub.className = "emptyState";
+    stub.innerHTML = `<div class="emptyTitle">Создай профиль</div><div class="emptyHint">Нажми «Профиль» → зарегистрируйся.</div>`;
+    host.appendChild(stub);
     return;
   }
 
-  for (const m of items) {
-    const item = document.createElement("div");
-    const isMine = Boolean(state.me && m.from_id === state.me.id);
-    item.className = "item" + (isMine ? " mine" : "");
-    const bg = avatarStyle(m.user);
-    item.innerHTML = `
-      <div class="avatar" style="background:${bg}">${initials(m.user)}</div>
-      <div class="content">
-        <div class="line1">
-          <div class="user"></div>
-          <div class="time"></div>
-        </div>
-        <div class="text"></div>
+  const q = normalizeSpaces(el("searchInput").value).toLowerCase();
+  const chats = listMyChats().filter((c) => !q || c.peer.name.toLowerCase().includes(q));
+  if (!chats.length) {
+    const stub = document.createElement("div");
+    stub.className = "emptyState";
+    stub.innerHTML = `<div class="emptyTitle">Нет чатов</div><div class="emptyHint">Нажми «Найти» и начни диалог.</div>`;
+    host.appendChild(stub);
+    return;
+  }
+
+  for (const c of chats) {
+    const row = document.createElement("div");
+    row.className = "chatItem" + (state.peer && c.peer.id === state.peer.id ? " active" : "");
+    row.addEventListener("click", () => {
+      const score = state.me ? sharedInterestCount(state.me, c.peer) : 0;
+      addRecent(state.me.id, c.peer.id);
+      setPeer(c.peer, score);
+    });
+
+    const ava = document.createElement("div");
+    ava.className = "avatarRound peer";
+    ava.textContent = initials(c.peer.name);
+    ava.style.background = avatarGradient(c.peer.id);
+
+    const txt = document.createElement("div");
+    txt.className = "chatItemText";
+    txt.innerHTML = `
+      <div class="chatItemTop">
+        <div class="chatItemName"></div>
+        <div class="chatItemTime"></div>
       </div>
+      <div class="chatItemPreview"></div>
     `;
-    item.querySelector(".user").textContent = m.user;
-    item.querySelector(".time").textContent = fmtTime(m.created_at_ms);
-    item.querySelector(".text").textContent = m.text;
-    list.appendChild(item);
+    txt.querySelector(".chatItemName").textContent = c.peer.name;
+    txt.querySelector(".chatItemTime").textContent = c.lastAt ? fmtTime(c.lastAt) : "";
+    txt.querySelector(".chatItemPreview").textContent = c.lastText ? c.lastText : "Совпадения по интересам";
+
+    row.appendChild(ava);
+    row.appendChild(txt);
+    host.appendChild(row);
   }
 }
 
-function sharedInterestCount(a, b) {
-  const sa = new Set((a?.interests || []).map(normalizeInterest));
-  const sb = new Set((b?.interests || []).map(normalizeInterest));
-  let shared = 0;
-  for (const x of sa) if (sb.has(x)) shared += 1;
-  return shared;
+function scrollChatToBottom() {
+  const body = el("messagesList");
+  body.scrollTop = body.scrollHeight;
 }
 
-function findBestPeer() {
-  if (!state.me) throw new Error("Сначала зарегистрируйся или войди.");
-  const profiles = readProfiles().filter((p) => p.id !== state.me.id);
-  if (!profiles.length) throw new Error("Нет других профилей. Зарегистрируй ещё один (в другой вкладке).");
+function renderMessages() {
+  const body = el("messagesList");
+  body.querySelectorAll(".msgRow").forEach((n) => n.remove());
+  const empty = el("emptyState");
 
-  let best = [];
-  let bestScore = -1;
-  for (const p of profiles) {
-    const score = sharedInterestCount(state.me, p);
-    if (score > bestScore) {
-      bestScore = score;
-      best = [p];
-    } else if (score === bestScore) {
-      best.push(p);
+  if (!state.convoId || !state.peer) {
+    empty.style.display = "block";
+    el("msgCount").textContent = "0";
+    return;
+  }
+
+  const items = state.messages || [];
+  el("msgCount").textContent = String(items.length);
+  empty.style.display = items.length ? "none" : "block";
+
+  for (const m of items) {
+    const isMine = Boolean(state.me && m.from_id === state.me.id);
+    const row = document.createElement("div");
+    row.className = "msgRow" + (isMine ? " mine" : "");
+
+    if (!isMine) {
+      const ava = document.createElement("div");
+      ava.className = "avatarRound peer";
+      ava.textContent = initials(m.user);
+      ava.style.background = avatarGradient(m.from_id || m.user);
+      row.appendChild(ava);
     }
+
+    const bubble = document.createElement("div");
+    bubble.className = "bubble" + (isMine ? " mine" : "");
+    bubble.innerHTML = `
+      <div class="bubbleHead">
+        <div class="bubbleUser"></div>
+        <div class="bubbleTime"></div>
+      </div>
+      <div class="bubbleText"></div>
+    `;
+    bubble.querySelector(".bubbleUser").textContent = m.user;
+    bubble.querySelector(".bubbleTime").textContent = fmtTime(m.created_at_ms);
+    bubble.querySelector(".bubbleText").textContent = m.text;
+    row.appendChild(bubble);
+    body.appendChild(row);
   }
-  if (bestScore <= 0) throw new Error("Не нашёл совпадений по интересам. Добавь интересы или заведи ещё профиль.");
-  const pick = best[Math.floor(Math.random() * best.length)];
-  return { peer: pick, score: bestScore };
+
+  scrollChatToBottom();
 }
 
-function broadcast(type, payload) {
-  try {
-    channel?.postMessage({ type, tabId: state.tabId, at: Date.now(), ...payload });
-  } catch {}
+function selectPeerById(peerId) {
+  if (!state.me) return;
+  const map = profilesMap();
+  const p = map.get(peerId) || null;
+  if (!p) return;
+  const score = sharedInterestCount(state.me, p);
+  addRecent(state.me.id, p.id);
+  setPeer(p, score);
 }
 
 function main() {
   showError("");
   updateChatEnabled();
-  renderProfileSelect();
 
-  // автологин по сохранённому профилю
+  renderProfileSelect();
+  renderChatList();
+
+  // modal events
+  el("profileBtn").addEventListener("click", openModal);
+  el("modalX").addEventListener("click", closeModal);
+  el("modalClose").addEventListener("click", closeModal);
+  window.addEventListener("keydown", (ev) => {
+    if (ev.key === "Escape") closeModal();
+  });
+
+  // restore session
   const savedId = getCurrentProfileId();
-  const profiles = readProfiles();
-  const saved = profiles.find((p) => p.id === savedId) || null;
+  const saved = readProfiles().find((p) => p.id === savedId) || null;
   if (saved) setMe(saved);
+  else openModal();
+
+  el("searchInput").addEventListener("input", () => renderChatList());
 
   el("registerForm").addEventListener("submit", (ev) => {
     ev.preventDefault();
@@ -352,6 +528,7 @@ function main() {
     try {
       const p = createProfile(el("regName").value, el("regInterests").value);
       setMe(p);
+      closeModal();
       broadcast("profiles_updated", {});
     } catch (e) {
       showError(e?.message || "Ошибка регистрации");
@@ -365,6 +542,7 @@ function main() {
     const p = readProfiles().find((x) => x.id === id) || null;
     if (!p) return showError("Выбери профиль.");
     setMe(p);
+    closeModal();
     broadcast("profiles_updated", {});
   });
 
@@ -372,6 +550,7 @@ function main() {
     showError("");
     try {
       const res = findBestPeer();
+      addRecent(state.me.id, res.peer.id);
       setPeer(res.peer, res.score);
       broadcast("peer_selected", { meId: state.me.id, peerId: res.peer.id });
     } catch (e) {
@@ -382,8 +561,8 @@ function main() {
   el("msgForm").addEventListener("submit", (ev) => {
     ev.preventDefault();
     showError("");
-    if (!state.me) return showError("Сначала зарегистрируйся или войди.");
-    if (!state.peer || !state.convoId) return showError("Нажми «Найти собеседника».");
+    if (!state.me) return showError("Создай профиль.");
+    if (!state.peer || !state.convoId) return showError("Нажми «Найти» или выбери чат слева.");
 
     const text = el("textInput").value.trim();
     if (!text) return showError("Напиши сообщение.");
@@ -392,8 +571,9 @@ function main() {
     try {
       const msg = addDmMessage(state.convoId, state.me, state.peer, text);
       el("textInput").value = "";
-      state.messages = [msg, ...state.messages].slice(0, 200);
+      state.messages = [...state.messages, msg].slice(-200);
       renderMessages();
+      renderChatList();
       broadcast("dm_message", { convoId: state.convoId, message: msg });
     } catch (e) {
       showError(e?.message || "Ошибка отправки");
@@ -405,29 +585,44 @@ function main() {
   channel?.addEventListener("message", (ev) => {
     const data = ev.data;
     if (!data || typeof data !== "object") return;
-    if (data.type === "profiles_updated") {
-      renderProfileSelect();
-      return;
-    }
+    if (data.type === "profiles_updated") return renderProfileSelect();
     if (data.type === "dm_message") {
-      if (!state.convoId || data.convoId !== state.convoId) return;
+      if (data.tabId === state.tabId) return;
       const msg = data.message;
       if (!msg || typeof msg !== "object") return;
-      // чтобы не дублировать свои же сообщения при broadcast
-      if (data.tabId === state.tabId) return;
-      state.messages = [msg, ...state.messages].slice(0, 200);
-      renderMessages();
+      // обновляем превью/список чатов в любом случае
+      renderChatList();
+      if (state.convoId && data.convoId === state.convoId) {
+        state.messages = [...state.messages, msg].slice(-200);
+        renderMessages();
+      }
+      return;
+    }
+    if (data.type === "peer_selected") {
+      // ничего не делаем: подбор остаётся локальным действием
       return;
     }
   });
 
   window.addEventListener("storage", (ev) => {
-    if (ev.key === STORAGE_PROFILES_KEY) renderProfileSelect();
-    if (!channel && ev.key === STORAGE_DM_MESSAGES_KEY && state.convoId) {
-      state.messages = loadDmMessages(state.convoId);
-      renderMessages();
+    if (ev.key === STORAGE_PROFILES_KEY) {
+      renderProfileSelect();
+      renderChatList();
+    }
+    if (!channel && ev.key === STORAGE_DM_MESSAGES_KEY) {
+      renderChatList();
+      if (state.convoId) {
+        state.messages = loadDmMessages(state.convoId);
+        renderMessages();
+      }
     }
   });
+
+  // if user already had chats, pick the most recent one
+  if (state.me) {
+    const chats = listMyChats();
+    if (chats.length && !state.peer) selectPeerById(chats[0].peer.id);
+  }
 }
 
 main();

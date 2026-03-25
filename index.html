@@ -11,82 +11,119 @@
     <link rel="stylesheet" href="./style.css" />
   </head>
   <body>
-    <div class="bg"></div>
-
-    <main class="container">
-      <header class="topbar">
-        <div class="brand">
-          <div class="logo">A</div>
-          <div class="brandText">
-            <div class="title">AmiGo</div>
-            <div class="subtitle">чаты по интересам (demo)</div>
-          </div>
-        </div>
-        <div class="topActions">
-          <div class="pill" id="mePill">Гость</div>
-          <button class="btn small" id="findBtn" type="button">
-            <span class="btnGlow"></span>
-            Найти собеседника
-          </button>
-        </div>
-      </header>
-
-      <section class="hero">
-        <div class="nowPlaying">
-          <div class="label">Собеседник</div>
-          <div class="song" id="peerTitle">—</div>
-          <div class="meta">
-            <span class="dot" id="presenceDot"></span>
-            <span id="presenceText">подбор по интересам</span>
-          </div>
-        </div>
-
-        <div class="glowCard">
-          <div class="stat">
-            <div class="statValue" id="msgCount">0</div>
-            <div class="statLabel">сообщений</div>
-          </div>
-          <div class="divider"></div>
-          <div class="stat">
-            <div class="statValue" id="matchScore">—</div>
-            <div class="statLabel">совпадений</div>
-          </div>
-        </div>
-      </section>
-
-      <section class="panel">
-        <div class="panelHeader">
-          <div class="panelTitle">Профиль</div>
-          <div class="panelHint">ник + интересы (для подбора)</div>
-        </div>
-
-        <div class="profileGrid">
-          <form class="profileCard" id="registerForm">
-            <div class="field grow">
-              <span class="fieldLabel">Ник</span>
-              <input id="regName" class="input" type="text" maxlength="80" placeholder="например, Андрей" required />
+    <main class="appShell">
+      <aside class="sidebar">
+        <div class="sbTop">
+          <div class="meBox">
+            <div class="avatarRound" id="meAvatar">A</div>
+            <div class="meText">
+              <div class="meName" id="meName">Гость</div>
+              <div class="meSub" id="meSub">Профиль не выбран</div>
             </div>
+          </div>
+          <div class="sbBtns">
+            <button class="iconBtn" id="profileBtn" type="button" title="Профиль">Профиль</button>
+            <button class="btn sbFind" id="findBtn" type="button">
+              <span class="btnGlow"></span>
+              Найти
+            </button>
+          </div>
+          <div class="sbSearch">
+            <input id="searchInput" class="input" type="text" placeholder="Поиск" maxlength="80" />
+          </div>
+        </div>
+
+        <div class="sbList" id="chatList"></div>
+        <div class="sbFooter">Demo: один компьютер • localStorage</div>
+      </aside>
+
+      <section class="chat">
+        <header class="chatTop">
+          <div class="peerBox">
+            <div class="avatarRound peer" id="peerAvatar">?</div>
+            <div class="peerText">
+              <div class="peerName" id="peerTitle">Выбери собеседника</div>
+              <div class="peerSub" id="presenceText">Нажми «Найти» или выбери чат слева</div>
+            </div>
+          </div>
+          <div class="rightStats">
+            <div class="statMini">
+              <div class="statMiniValue" id="msgCount">0</div>
+              <div class="statMiniLabel">сообщений</div>
+            </div>
+            <div class="statMini">
+              <div class="statMiniValue" id="matchScore">—</div>
+              <div class="statMiniLabel">совпадений</div>
+            </div>
+          </div>
+        </header>
+
+        <div class="chatBody" id="messagesList">
+          <div class="emptyState" id="emptyState">
+            <div class="emptyTitle">Пока нет диалога</div>
+            <div class="emptyHint">Создай профиль и найди собеседника по интересам.</div>
+          </div>
+        </div>
+
+        <footer class="composerBar">
+          <form id="msgForm" class="composerRow">
             <input
-              class="input"
-              id="regInterests"
+              id="textInput"
+              class="input grow"
               type="text"
-              maxlength="200"
-              placeholder="Интересы через запятую: музыка, кино, python"
+              placeholder="Сообщение…"
+              maxlength="2000"
               required
             />
+            <button class="btn send" type="submit" id="sendBtn">
+              <span class="btnGlow"></span>
+              Отпр.
+            </button>
+          </form>
+          <div class="errorLine" id="errorBox"></div>
+        </footer>
+      </section>
+    </main>
+
+    <div class="modal" id="profileModal" aria-hidden="true">
+      <div class="modalBackdrop" id="modalClose"></div>
+      <div class="modalCard" role="dialog" aria-modal="true" aria-label="Профиль">
+        <div class="modalTop">
+          <div class="modalTitle">Профиль</div>
+          <button class="iconBtn" id="modalX" type="button">Закрыть</button>
+        </div>
+
+        <div class="modalGrid">
+          <form class="modalPane" id="registerForm">
+            <div class="paneTitle">Регистрация</div>
+            <label class="field">
+              <span class="fieldLabel">Ник</span>
+              <input id="regName" class="input" type="text" maxlength="80" placeholder="например, Андрей" required />
+            </label>
+            <label class="field">
+              <span class="fieldLabel">Интересы</span>
+              <input
+                class="input"
+                id="regInterests"
+                type="text"
+                maxlength="200"
+                placeholder="музыка, кино, python"
+                required
+              />
+            </label>
             <button class="btn" type="submit" id="registerBtn">
               <span class="btnGlow"></span>
-              Зарегистрироваться
+              Создать профиль
             </button>
-            <div class="tiny">Подсказка: открой вторую вкладку и зайди другим ником — будет как “два человека”.</div>
+            <div class="tiny">Совет: открой 2 вкладки и создай 2 профиля — получится “двое людей”.</div>
           </form>
 
-          <form class="profileCard" id="loginForm">
-            <div class="panelHeader compact">
-              <div class="panelTitle">Вход</div>
-              <div class="panelHint">выбери профиль</div>
-            </div>
-            <select class="input" id="profileSelect"></select>
+          <form class="modalPane" id="loginForm">
+            <div class="paneTitle">Вход</div>
+            <label class="field">
+              <span class="fieldLabel">Выбор профиля</span>
+              <select class="input" id="profileSelect"></select>
+            </label>
             <button class="btn" type="submit">
               <span class="btnGlow"></span>
               Войти
@@ -94,48 +131,8 @@
             <div class="chips" id="myInterests"></div>
           </form>
         </div>
-
-        <div class="panelHeader" style="margin-top: 12px">
-          <div class="panelTitle">Диалог</div>
-          <div class="panelHint" id="chatHint">выбери собеседника кнопкой сверху</div>
-        </div>
-
-        <div class="composer">
-          <form id="msgForm" class="composerForm">
-            <div class="row">
-              <div class="field grow">
-                <span class="fieldLabel">Сообщение</span>
-                <input
-                  id="textInput"
-                  class="input"
-                  type="text"
-                  placeholder="Напиши что-нибудь…"
-                  maxlength="2000"
-                  required
-                />
-              </div>
-            </div>
-            <div class="actions">
-              <button class="btn" type="submit" id="sendBtn">
-                <span class="btnGlow"></span>
-                Отправить
-              </button>
-              <div class="tiny" id="errorBox"></div>
-            </div>
-          </form>
-        </div>
-
-        <div class="list" id="messagesList">
-          <div class="skeleton" id="loadingSkeleton">
-            <div class="shimmer"></div>
-          </div>
-        </div>
-      </section>
-
-      <footer class="footer">
-        <div class="footerText">GitHub Pages demo • без сервера • localStorage + BroadcastChannel</div>
-      </footer>
-    </main>
+      </div>
+    </div>
 
     <script src="./app.js"></script>
   </body>

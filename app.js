@@ -1,14 +1,82 @@
+const DEFAULT_ROOMS = ["Музыка", "Кино", "Игры", "Программирование", "Спорт"];
+
+const STORAGE_USER_KEY = "amigo_messenger_user";
+const STORAGE_ROOM_KEY = "amigo_messenger_room";
+const STORAGE_ROOMS_KEY = "amigo_rooms_v1";
+const STORAGE_MESSAGES_KEY = "amigo_messages_v1";
+
+const CHANNEL_NAME = "amigo_messenger_channel_v1";
+
 const state = {
-  currentSong: null,
-  comments: [],
-  polling: false,
+  tabId: (crypto?.randomUUID ? crypto.randomUUID() : String(Date.now()) + "_" + Math.random().toString(16).slice(2)),
+  rooms: [],
+  room: null,
+  user: null,
+  messages: [],
+  peers: new Map(), // tabId -> { lastSeenMs, room }
 };
 
-const STORAGE_USER_KEY = "amigo_user";
-const STORAGE_COMMENTS_KEY = "amigo_comments_v1";
+const channel = typeof BroadcastChannel !== "undefined" ? new BroadcastChannel(CHANNEL_NAME) : null;
 
 function el(id) {
   return document.getElementById(id);
+}
+
+function safeJsonParse(str, fallback) {
+  try {
+    return JSON.parse(str);
+  } catch {
+    return fallback;
+  }
+}
+
+function readRooms() {
+  const raw = localStorage.getItem(STORAGE_ROOMS_KEY);
+  const rooms = Array.isArray(safeJsonParse(raw || "[]", [])) ? safeJsonParse(raw || "[]", []) : [];
+  const merged = Array.from(new Set([...DEFAULT_ROOMS, ...rooms]))
+    .map((x) => String(x).trim())
+    .filter(Boolean)
+    .slice(0, 200);
+  return merged.sort((a, b) => a.localeCompare(b, "ru"));
+}
+
+function writeRooms(rooms) {
+  localStorage.setItem(STORAGE_ROOMS_KEY, JSON.stringify(rooms));
+}
+
+function readAllMessages() {
+  const raw = localStorage.getItem(STORAGE_MESSAGES_KEY);
+  const obj = safeJsonParse(raw || "{}", {});
+  return obj && typeof obj === "object" ? obj : {};
+}
+
+function writeAllMessages(obj) {
+  localStorage.setItem(STORAGE_MESSAGES_KEY, JSON.stringify(obj));
+}
+
+function loadMessages(room) {
+  const all = readAllMessages();
+  const list = Array.isArray(all[room]) ? all[room] : [];
+  return list
+    .filter((m) => m && typeof m === "object")
+    .sort((a, b) => (b.created_at_ms || 0) - (a.created_at_ms || 0))
+    .slice(0, 200);
+}
+
+function addMessage(room, user, text) {
+  const all = readAllMessages();
+  const list = Array.isArray(all[room]) ? all[room] : [];
+  const msg = {
+    id: crypto?.randomUUID ? crypto.randomUUID() : String(Date.now()) + "_" + Math.random().toString(16).slice(2),
+    room,
+    user,
+    text,
+    created_at_ms: Date.now(),
+  };
+  list.push(msg);
+  all[room] = list.slice(-400);
+  writeAllMessages(all);
+  return msg;
 }
 
 function hashString(str) {
@@ -21,7 +89,7 @@ function hashString(str) {
 }
 
 function avatarStyle(user) {
-  const h = hashString(user.trim().toLowerCase() || "user");
+  const h = hashString((user || "").trim().toLowerCase() || "user");
   const hue1 = h % 360;
   const hue2 = (hue1 + 42) % 360;
   return `linear-gradient(135deg, hsl(${hue1} 95% 60%), hsl(${hue2} 95% 55%))`;
@@ -46,73 +114,57 @@ function fmtTime(ms) {
   }
 }
 
-function getCurrentSong() {
-  // MVP: имитируем "уведомления Windows" — песня меняется раз в ~30 секунд
-  const songs = [
-    "Blinding Lights - The Weeknd",
-    "Lose Yourself - Eminem",
-    "Bad Guy - Billie Eilish",
-    "Around the World - Daft Punk",
-    "Numb - Linkin Park",
-  ];
-  const idx = Math.floor(Date.now() / 1000 / 30) % songs.length;
-  return songs[idx];
+function setConnStatus() {
+  const pill = el("connPill");
+  pill.textContent = "LOCAL";
+  pill.style.borderColor = "rgba(41, 211, 255, 0.35)";
 }
 
-function readAllComments() {
+function showError(msg) {
+  el("errorBox").textContent = msg || "";
+}
+
+function setSending(sending) {
+  el("sendBtn").disabled = sending;
+}
+
+function setRoom(room) {
+  state.room = room;
+  el("roomTitle").textContent = room || "—";
   try {
-    const raw = localStorage.getItem(STORAGE_COMMENTS_KEY);
-    if (!raw) return {};
-    const obj = JSON.parse(raw);
-    if (!obj || typeof obj !== "object") return {};
-    return obj;
-  } catch {
-    return {};
+    localStorage.setItem(STORAGE_ROOM_KEY, room || "");
+  } catch {}
+  publishPresence();
+}
+
+function setUser(user) {
+  state.user = user;
+  el("myNameShort").textContent = (user || "—").slice(0, 10);
+  try {
+    localStorage.setItem(STORAGE_USER_KEY, user || "");
+  } catch {}
+}
+
+function renderRooms() {
+  const host = el("roomsChips");
+  host.querySelectorAll(".chip").forEach((n) => n.remove());
+
+  for (const r of state.rooms) {
+    const chip = document.createElement("div");
+    chip.className = "chip" + (r === state.room ? " active" : "");
+    chip.textContent = r;
+    chip.addEventListener("click", () => selectRoom(r));
+    host.appendChild(chip);
   }
 }
 
-function writeAllComments(obj) {
-  localStorage.setItem(STORAGE_COMMENTS_KEY, JSON.stringify(obj));
-}
-
-function loadCommentsForSong(song) {
-  const all = readAllComments();
-  const items = all[song];
-  if (!Array.isArray(items)) return [];
-  return items
-    .filter((x) => x && typeof x === "object")
-    .sort((a, b) => (b.created_at_ms || 0) - (a.created_at_ms || 0));
-}
-
-function addComment(song, user, text) {
-  const all = readAllComments();
-  const list = Array.isArray(all[song]) ? all[song] : [];
-  const created = {
-    id: crypto?.randomUUID ? crypto.randomUUID() : String(Date.now()) + "_" + Math.random().toString(16).slice(2),
-    song,
-    user,
-    text,
-    created_at_ms: Date.now(),
-  };
-  list.push(created);
-  all[song] = list.slice(-200);
-  writeAllComments(all);
-  return created;
-}
-
-function setSong(song) {
-  state.currentSong = song;
-  el("songTitle").textContent = song || "—";
-}
-
-function renderComments() {
-  const list = el("commentsList");
+function renderMessages() {
+  const list = el("messagesList");
   const skeleton = el("loadingSkeleton");
   if (skeleton) skeleton.style.display = "none";
 
-  const items = state.comments || [];
-  el("commentCount").textContent = String(items.length);
-
+  const items = state.messages || [];
+  el("msgCount").textContent = String(items.length);
   list.querySelectorAll(".item, .empty").forEach((n) => n.remove());
 
   if (!items.length) {
@@ -125,19 +177,19 @@ function renderComments() {
           <div class="user">Пока тихо</div>
           <div class="time"></div>
         </div>
-        <div class="text">Будь первым — оставь комментарий к этому треку.</div>
+        <div class="text">Будь первым — напиши сообщение в этой комнате.</div>
       </div>
     `;
     list.appendChild(empty);
     return;
   }
 
-  for (const c of items) {
+  for (const m of items) {
     const item = document.createElement("div");
     item.className = "item";
-    const bg = avatarStyle(c.user);
+    const bg = avatarStyle(m.user);
     item.innerHTML = `
-      <div class="avatar" style="background:${bg}">${initials(c.user)}</div>
+      <div class="avatar" style="background:${bg}">${initials(m.user)}</div>
       <div class="content">
         <div class="line1">
           <div class="user"></div>
@@ -146,101 +198,189 @@ function renderComments() {
         <div class="text"></div>
       </div>
     `;
-    item.querySelector(".user").textContent = c.user;
-    item.querySelector(".time").textContent = fmtTime(c.created_at_ms);
-    item.querySelector(".text").textContent = c.text;
+    item.querySelector(".user").textContent = m.user;
+    item.querySelector(".time").textContent = fmtTime(m.created_at_ms);
+    item.querySelector(".text").textContent = m.text;
     list.appendChild(item);
   }
 }
 
-function showError(msg) {
-  el("errorBox").textContent = msg || "";
+function setPresenceCount(count) {
+  el("presenceText").textContent = `${count} онлайн`;
+  const dot = el("presenceDot");
+  dot.style.background = count > 0 ? "var(--ok)" : "rgba(255,255,255,0.25)";
+  dot.style.boxShadow =
+    count > 0 ? "0 0 0 6px rgba(52, 211, 153, 0.12)" : "0 0 0 6px rgba(255,255,255,0.06)";
 }
 
-function setSending(sending) {
-  const btn = el("sendBtn");
-  btn.disabled = sending;
-  btn.style.opacity = sending ? "0.75" : "1";
-  btn.style.filter = sending ? "grayscale(0.1)" : "none";
-}
-
-function refreshComments() {
-  if (!state.currentSong) return;
-  state.comments = loadCommentsForSong(state.currentSong);
-  renderComments();
-}
-
-function refreshSongAndMaybeComments() {
-  const song = getCurrentSong();
-  if (!song) return;
-  if (state.currentSong !== song) {
-    setSong(song);
-    el("loadingSkeleton").style.display = "block";
-    refreshComments();
+function computeOnlineCount() {
+  const now = Date.now();
+  for (const [id, info] of state.peers.entries()) {
+    if (!info || now - info.lastSeenMs > 6500) state.peers.delete(id);
   }
+  let count = 1; // текущая вкладка
+  for (const info of state.peers.values()) {
+    if (info.room === state.room) count += 1;
+  }
+  setPresenceCount(count);
 }
 
-function startPolling() {
-  if (state.polling) return;
-  state.polling = true;
-  const tick = () => {
-    try {
-      refreshSongAndMaybeComments();
-      el("statusText").textContent = "LIVE";
-    } catch {
-      el("statusText").textContent = "OFF";
-    }
-  };
-  tick();
-  setInterval(tick, 4000);
-}
-
-function loadUserFromStorage() {
+function publishPresence() {
+  if (!state.room) return;
+  const payload = { type: "presence", tabId: state.tabId, room: state.room, at: Date.now() };
   try {
-    const v = localStorage.getItem(STORAGE_USER_KEY);
-    if (v) el("userInput").value = v;
+    channel?.postMessage(payload);
   } catch {}
 }
 
-function saveUserToStorage(v) {
+function publishMessage(msg) {
+  const payload = { type: "message", tabId: state.tabId, message: msg, at: Date.now() };
   try {
-    localStorage.setItem(STORAGE_USER_KEY, v);
+    channel?.postMessage(payload);
   } catch {}
+}
+
+function publishRoomsUpdated() {
+  const payload = { type: "rooms", tabId: state.tabId, at: Date.now() };
+  try {
+    channel?.postMessage(payload);
+  } catch {}
+}
+
+function handleIncomingPresence(data) {
+  if (!data || data.tabId === state.tabId) return;
+  state.peers.set(data.tabId, { lastSeenMs: Date.now(), room: data.room || "" });
+  computeOnlineCount();
+}
+
+function handleIncomingMessage(data) {
+  const msg = data?.message;
+  if (!msg || typeof msg !== "object") return;
+  if (msg.room !== state.room) return;
+  state.messages = [msg, ...state.messages].slice(0, 200);
+  renderMessages();
+}
+
+function handleRoomsPing() {
+  state.rooms = readRooms();
+  if (!state.rooms.includes(state.room)) setRoom(state.rooms[0] || "");
+  renderRooms();
+}
+
+async function selectRoom(room) {
+  setRoom(room);
+  renderRooms();
+  el("loadingSkeleton").style.display = "block";
+  state.messages = loadMessages(room);
+  renderMessages();
+  computeOnlineCount();
+}
+
+function loadPrefs() {
+  let preferredRoom = "";
+  try {
+    const r = localStorage.getItem(STORAGE_ROOM_KEY);
+    if (r) preferredRoom = r;
+  } catch {}
+  try {
+    const u = localStorage.getItem(STORAGE_USER_KEY);
+    if (u) el("userInput").value = u;
+  } catch {}
+  return preferredRoom;
+}
+
+function ensureRoomsSeeded() {
+  const existing = safeJsonParse(localStorage.getItem(STORAGE_ROOMS_KEY) || "null", null);
+  if (Array.isArray(existing) && existing.length) return;
+  writeRooms(DEFAULT_ROOMS);
 }
 
 function main() {
-  loadUserFromStorage();
+  setConnStatus();
+  showError("");
+  ensureRoomsSeeded();
 
-  setSong(getCurrentSong());
-  refreshComments();
-  renderComments();
-  startPolling();
+  const preferredRoom = loadPrefs();
+  const initialUser = (el("userInput").value || "").trim() || "Гость";
+  setUser(initialUser);
 
-  el("commentForm").addEventListener("submit", (ev) => {
+  state.rooms = readRooms();
+  const firstRoom = state.rooms[0] || "Музыка";
+  const initialRoom = state.rooms.includes(preferredRoom) ? preferredRoom : firstRoom;
+  setRoom(initialRoom);
+  renderRooms();
+  selectRoom(initialRoom);
+
+  channel?.addEventListener("message", (ev) => {
+    const data = ev.data;
+    if (!data || typeof data !== "object") return;
+    if (data.type === "presence") return handleIncomingPresence(data);
+    if (data.type === "message") return handleIncomingMessage(data);
+    if (data.type === "rooms") return handleRoomsPing();
+  });
+
+  window.addEventListener("storage", (ev) => {
+    if (ev.key === STORAGE_MESSAGES_KEY && state.room) {
+      state.messages = loadMessages(state.room);
+      renderMessages();
+    }
+    if (ev.key === STORAGE_ROOMS_KEY) handleRoomsPing();
+  });
+
+  el("roomCreateForm").addEventListener("submit", (ev) => {
+    ev.preventDefault();
+    showError("");
+    const name = el("roomCreateInput").value.trim().replace(/\s+/g, " ");
+    if (!name) return;
+    if (name.length > 60) return showError("Слишком длинное название комнаты.");
+
+    state.rooms = readRooms();
+    if (!state.rooms.includes(name)) {
+      const next = [...state.rooms, name].sort((a, b) => a.localeCompare(b, "ru"));
+      writeRooms(next);
+      state.rooms = next;
+      publishRoomsUpdated();
+    }
+    el("roomCreateInput").value = "";
+    selectRoom(name);
+  });
+
+  el("userInput").addEventListener("change", () => {
+    const u = el("userInput").value.trim() || "Гость";
+    setUser(u);
+  });
+
+  el("msgForm").addEventListener("submit", (ev) => {
     ev.preventDefault();
     showError("");
 
     const user = el("userInput").value.trim();
     const text = el("textInput").value.trim();
-    const song = state.currentSong;
-
-    if (!song) return showError("Не удалось определить текущую песню.");
-    if (!user) return showError("Укажи имя.");
-    if (!text) return showError("Напиши комментарий.");
+    if (!state.room) return showError("Выбери комнату.");
+    if (!user) return showError("Укажи ник.");
+    if (!text) return showError("Напиши сообщение.");
 
     setSending(true);
     try {
-      saveUserToStorage(user);
-      const created = addComment(song, user, text);
+      setUser(user);
+      const msg = addMessage(state.room, user, text);
       el("textInput").value = "";
-      state.comments = [created, ...state.comments].slice(0, 200);
-      renderComments();
+      state.messages = [msg, ...state.messages].slice(0, 200);
+      renderMessages();
+      publishMessage(msg);
     } catch (e) {
-      showError(e?.message || "Ошибка отправки.");
+      showError(e?.message || "Ошибка отправки");
     } finally {
       setSending(false);
     }
   });
+
+  // presence heartbeat
+  publishPresence();
+  setInterval(() => {
+    publishPresence();
+    computeOnlineCount();
+  }, 2000);
 }
 
 main();

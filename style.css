@@ -1,3 +1,4 @@
+/* AmiGo Pages demo styles */
 :root {
   --bg1: #0b1020;
   --bg2: #0a1b2e;
@@ -152,7 +153,6 @@ body {
   height: 240px;
   border-radius: 50%;
   background: radial-gradient(circle at 30% 30%, rgba(41, 211, 255, 0.55), transparent 60%);
-  filter: blur(1px);
   opacity: 0.7;
 }
 
@@ -273,6 +273,53 @@ body {
   color: var(--muted);
 }
 
+.roomsBar {
+  margin-top: 10px;
+  display: grid;
+  gap: 10px;
+}
+
+.chips {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.chip {
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(0, 0, 0, 0.14);
+  color: rgba(255, 255, 255, 0.86);
+  padding: 9px 12px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: transform 140ms ease, background 140ms ease, border-color 140ms ease;
+  user-select: none;
+}
+
+.chip:hover {
+  transform: translateY(-1px);
+  background: rgba(0, 0, 0, 0.18);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.chip.active {
+  background: linear-gradient(135deg, rgba(41, 211, 255, 0.22), rgba(124, 92, 255, 0.18));
+  border-color: rgba(41, 211, 255, 0.35);
+}
+
+.roomCreate {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+@media (max-width: 700px) {
+  .roomCreate {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+
 .composer {
   margin-top: 12px;
   padding: 12px;
@@ -349,6 +396,10 @@ body {
   overflow: hidden;
 }
 
+.btn.small {
+  min-width: 140px;
+}
+
 .btn:hover {
   transform: translateY(-1px);
   filter: brightness(1.06);
@@ -360,6 +411,7 @@ body {
 
 .btn:disabled {
   cursor: default;
+  opacity: 0.75;
 }
 
 .btnGlow {
@@ -394,7 +446,6 @@ body {
   border: 1px solid rgba(255, 255, 255, 0.12);
   background: rgba(0, 0, 0, 0.12);
   box-shadow: 0 10px 24px rgba(0, 0, 0, 0.22);
-  transform: translateY(0);
   transition: transform 160ms ease, background 160ms ease, border-color 160ms ease;
 }
 
@@ -481,4 +532,3 @@ body {
   color: var(--muted2);
   font-size: 12px;
 }
-

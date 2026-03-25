@@ -3,3 +3,8 @@ Thumbs.db
 .idea/
 .vscode/
 node_modules/
+.venv/
+__pycache__/
+*.pyc
+amigo.sqlite3
+*.sqlite3

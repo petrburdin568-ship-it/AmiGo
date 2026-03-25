@@ -3,8 +3,11 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>AmiGo — Мессенджер по интересам</title>
-    <meta name="description" content="Локальный MVP: комнаты по интересам + чат в реальном времени." />
+    <title>AmiGo — Чаты по интересам (Demo)</title>
+    <meta
+      name="description"
+      content="GitHub Pages demo: регистрация, интересы в профиле, поиск собеседника и 1:1 чат (без сервера)."
+    />
     <link rel="stylesheet" href="./style.css" />
   </head>
   <body>
@@ -16,19 +19,25 @@
           <div class="logo">A</div>
           <div class="brandText">
             <div class="title">AmiGo</div>
-            <div class="subtitle">мессенджер по интересам (MVP)</div>
+            <div class="subtitle">чаты по интересам (demo)</div>
           </div>
         </div>
-        <div class="pill" id="connPill">OFFLINE</div>
+        <div class="topActions">
+          <div class="pill" id="mePill">Гость</div>
+          <button class="btn small" id="findBtn" type="button">
+            <span class="btnGlow"></span>
+            Найти собеседника
+          </button>
+        </div>
       </header>
 
       <section class="hero">
         <div class="nowPlaying">
-          <div class="label">Комната</div>
-          <div class="song" id="roomTitle">—</div>
+          <div class="label">Собеседник</div>
+          <div class="song" id="peerTitle">—</div>
           <div class="meta">
             <span class="dot" id="presenceDot"></span>
-            <span id="presenceText">0 онлайн</span>
+            <span id="presenceText">подбор по интересам</span>
           </div>
         </div>
 
@@ -39,48 +48,61 @@
           </div>
           <div class="divider"></div>
           <div class="stat">
-            <div class="statValue" id="myNameShort">—</div>
-            <div class="statLabel">твой ник</div>
+            <div class="statValue" id="matchScore">—</div>
+            <div class="statLabel">совпадений</div>
           </div>
         </div>
       </section>
 
       <section class="panel">
         <div class="panelHeader">
-          <div class="panelTitle">Интересы</div>
-          <div class="panelHint">выбери комнату или создай свою</div>
+          <div class="panelTitle">Профиль</div>
+          <div class="panelHint">ник + интересы (для подбора)</div>
         </div>
 
-        <div class="roomsBar">
-          <div class="chips" id="roomsChips"></div>
-          <form class="roomCreate" id="roomCreateForm">
+        <div class="profileGrid">
+          <form class="profileCard" id="registerForm">
+            <div class="field grow">
+              <span class="fieldLabel">Ник</span>
+              <input id="regName" class="input" type="text" maxlength="80" placeholder="например, Андрей" required />
+            </div>
             <input
               class="input"
-              id="roomCreateInput"
+              id="regInterests"
               type="text"
-              maxlength="60"
-              placeholder="Новая комната (например, Путешествия)"
+              maxlength="200"
+              placeholder="Интересы через запятую: музыка, кино, python"
               required
             />
-            <button class="btn small" type="submit">
+            <button class="btn" type="submit" id="registerBtn">
               <span class="btnGlow"></span>
-              Создать
+              Зарегистрироваться
             </button>
+            <div class="tiny">Подсказка: открой вторую вкладку и зайди другим ником — будет как “два человека”.</div>
+          </form>
+
+          <form class="profileCard" id="loginForm">
+            <div class="panelHeader compact">
+              <div class="panelTitle">Вход</div>
+              <div class="panelHint">выбери профиль</div>
+            </div>
+            <select class="input" id="profileSelect"></select>
+            <button class="btn" type="submit">
+              <span class="btnGlow"></span>
+              Войти
+            </button>
+            <div class="chips" id="myInterests"></div>
           </form>
         </div>
 
         <div class="panelHeader" style="margin-top: 12px">
-          <div class="panelTitle">Чат</div>
-          <div class="panelHint">обновляется мгновенно</div>
+          <div class="panelTitle">Диалог</div>
+          <div class="panelHint" id="chatHint">выбери собеседника кнопкой сверху</div>
         </div>
 
         <div class="composer">
           <form id="msgForm" class="composerForm">
             <div class="row">
-              <label class="field">
-                <span class="fieldLabel">Ник</span>
-                <input id="userInput" class="input" type="text" maxlength="80" required />
-              </label>
               <div class="field grow">
                 <span class="fieldLabel">Сообщение</span>
                 <input
@@ -111,7 +133,7 @@
       </section>
 
       <footer class="footer">
-        <div class="footerText">FastAPI + WebSocket + SQLite • локальный MVP</div>
+        <div class="footerText">GitHub Pages demo • без сервера • localStorage + BroadcastChannel</div>
       </footer>
     </main>
 

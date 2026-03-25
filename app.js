@@ -1,19 +1,16 @@
-const DEFAULT_ROOMS = ["Музыка", "Кино", "Игры", "Программирование", "Спорт"];
+const STORAGE_PROFILES_KEY = "amigo_profiles_v1";
+const STORAGE_CURRENT_PROFILE_ID_KEY = "amigo_current_profile_id";
+const STORAGE_DM_MESSAGES_KEY = "amigo_dm_messages_v1";
 
-const STORAGE_USER_KEY = "amigo_messenger_user";
-const STORAGE_ROOM_KEY = "amigo_messenger_room";
-const STORAGE_ROOMS_KEY = "amigo_rooms_v1";
-const STORAGE_MESSAGES_KEY = "amigo_messages_v1";
-
-const CHANNEL_NAME = "amigo_messenger_channel_v1";
+const CHANNEL_NAME = "amigo_demo_channel_v1";
 
 const state = {
-  tabId: (crypto?.randomUUID ? crypto.randomUUID() : String(Date.now()) + "_" + Math.random().toString(16).slice(2)),
-  rooms: [],
-  room: null,
-  user: null,
+  tabId: crypto?.randomUUID ? crypto.randomUUID() : String(Date.now()) + "_" + Math.random().toString(16).slice(2),
+  me: null,
+  peer: null,
+  matchShared: 0,
+  convoId: null,
   messages: [],
-  peers: new Map(), // tabId -> { lastSeenMs, room }
 };
 
 const channel = typeof BroadcastChannel !== "undefined" ? new BroadcastChannel(CHANNEL_NAME) : null;
@@ -30,52 +27,115 @@ function safeJsonParse(str, fallback) {
   }
 }
 
-function readRooms() {
-  const raw = localStorage.getItem(STORAGE_ROOMS_KEY);
-  const rooms = Array.isArray(safeJsonParse(raw || "[]", [])) ? safeJsonParse(raw || "[]", []) : [];
-  const merged = Array.from(new Set([...DEFAULT_ROOMS, ...rooms]))
-    .map((x) => String(x).trim())
-    .filter(Boolean)
-    .slice(0, 200);
-  return merged.sort((a, b) => a.localeCompare(b, "ru"));
+function normalizeInterest(s) {
+  return String(s || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
 }
 
-function writeRooms(rooms) {
-  localStorage.setItem(STORAGE_ROOMS_KEY, JSON.stringify(rooms));
+function parseInterests(raw) {
+  const parts = String(raw || "")
+    .split(/[,;]/g)
+    .map((x) => x.trim())
+    .filter(Boolean);
+  const norm = parts.map(normalizeInterest).filter(Boolean);
+  return Array.from(new Set(norm)).slice(0, 20);
 }
 
-function readAllMessages() {
-  const raw = localStorage.getItem(STORAGE_MESSAGES_KEY);
+function readProfiles() {
+  const raw = localStorage.getItem(STORAGE_PROFILES_KEY);
+  const arr = safeJsonParse(raw || "[]", []);
+  const list = Array.isArray(arr) ? arr : [];
+  return list
+    .filter((p) => p && typeof p === "object")
+    .map((p) => ({
+      id: String(p.id || ""),
+      name: String(p.name || "").trim(),
+      interests: Array.isArray(p.interests) ? p.interests.map(normalizeInterest).filter(Boolean) : [],
+      created_at_ms: Number(p.created_at_ms || 0),
+    }))
+    .filter((p) => p.id && p.name);
+}
+
+function writeProfiles(list) {
+  localStorage.setItem(STORAGE_PROFILES_KEY, JSON.stringify(list));
+}
+
+function createProfile(name, interestsRaw) {
+  const nameClean = String(name || "").trim().replace(/\s+/g, " ");
+  const interests = parseInterests(interestsRaw);
+  if (!nameClean) throw new Error("Укажи ник.");
+  if (!interests.length) throw new Error("Добавь хотя бы один интерес.");
+  const profile = {
+    id: crypto?.randomUUID ? crypto.randomUUID() : String(Date.now()) + "_" + Math.random().toString(16).slice(2),
+    name: nameClean.slice(0, 80),
+    interests,
+    created_at_ms: Date.now(),
+  };
+  const all = readProfiles();
+  all.push(profile);
+  writeProfiles(all);
+  return profile;
+}
+
+function getCurrentProfileId() {
+  try {
+    return localStorage.getItem(STORAGE_CURRENT_PROFILE_ID_KEY) || "";
+  } catch {
+    return "";
+  }
+}
+
+function setCurrentProfileId(id) {
+  try {
+    localStorage.setItem(STORAGE_CURRENT_PROFILE_ID_KEY, id || "");
+  } catch {}
+}
+
+function readAllDmMessages() {
+  const raw = localStorage.getItem(STORAGE_DM_MESSAGES_KEY);
   const obj = safeJsonParse(raw || "{}", {});
   return obj && typeof obj === "object" ? obj : {};
 }
 
-function writeAllMessages(obj) {
-  localStorage.setItem(STORAGE_MESSAGES_KEY, JSON.stringify(obj));
+function writeAllDmMessages(obj) {
+  localStorage.setItem(STORAGE_DM_MESSAGES_KEY, JSON.stringify(obj));
 }
 
-function loadMessages(room) {
-  const all = readAllMessages();
-  const list = Array.isArray(all[room]) ? all[room] : [];
+function dmConvoId(aId, bId) {
+  const a = String(aId);
+  const b = String(bId);
+  const [x, y] = a < b ? [a, b] : [b, a];
+  return `dm:${x}:${y}`;
+}
+
+function loadDmMessages(convoId) {
+  const all = readAllDmMessages();
+  const list = Array.isArray(all[convoId]) ? all[convoId] : [];
   return list
     .filter((m) => m && typeof m === "object")
     .sort((a, b) => (b.created_at_ms || 0) - (a.created_at_ms || 0))
     .slice(0, 200);
 }
 
-function addMessage(room, user, text) {
-  const all = readAllMessages();
-  const list = Array.isArray(all[room]) ? all[room] : [];
+function addDmMessage(convoId, fromProfile, toProfile, text) {
+  const t = String(text || "").trim();
+  if (!t) throw new Error("Пустое сообщение.");
+  const all = readAllDmMessages();
+  const list = Array.isArray(all[convoId]) ? all[convoId] : [];
   const msg = {
     id: crypto?.randomUUID ? crypto.randomUUID() : String(Date.now()) + "_" + Math.random().toString(16).slice(2),
-    room,
-    user,
-    text,
+    convo_id: convoId,
+    from_id: fromProfile.id,
+    to_id: toProfile.id,
+    user: fromProfile.name,
+    text: t.slice(0, 2000),
     created_at_ms: Date.now(),
   };
   list.push(msg);
-  all[room] = list.slice(-400);
-  writeAllMessages(all);
+  all[convoId] = list.slice(-400);
+  writeAllDmMessages(all);
   return msg;
 }
 
@@ -114,12 +174,6 @@ function fmtTime(ms) {
   }
 }
 
-function setConnStatus() {
-  const pill = el("connPill");
-  pill.textContent = "LOCAL";
-  pill.style.borderColor = "rgba(41, 211, 255, 0.35)";
-}
-
 function showError(msg) {
   el("errorBox").textContent = msg || "";
 }
@@ -128,32 +182,72 @@ function setSending(sending) {
   el("sendBtn").disabled = sending;
 }
 
-function setRoom(room) {
-  state.room = room;
-  el("roomTitle").textContent = room || "—";
-  try {
-    localStorage.setItem(STORAGE_ROOM_KEY, room || "");
-  } catch {}
-  publishPresence();
+function setMe(profile) {
+  state.me = profile;
+  el("mePill").textContent = profile ? profile.name : "Гость";
+  if (profile) setCurrentProfileId(profile.id);
+  // при смене профиля сбрасываем текущий диалог
+  if (state.peer) setPeer(null, 0);
+  renderProfileSelect();
+  renderMyInterests();
+  updateChatEnabled();
 }
 
-function setUser(user) {
-  state.user = user;
-  el("myNameShort").textContent = (user || "—").slice(0, 10);
-  try {
-    localStorage.setItem(STORAGE_USER_KEY, user || "");
-  } catch {}
+function setPeer(profile, sharedCount) {
+  state.peer = profile;
+  state.matchShared = sharedCount || 0;
+  el("peerTitle").textContent = profile ? profile.name : "—";
+  el("matchScore").textContent = profile ? String(state.matchShared) : "—";
+  el("presenceText").textContent = profile ? `${state.matchShared} общих интересов` : "подбор по интересам";
+  el("chatHint").textContent = profile ? "пиши сообщение — оно появится во всех вкладках" : "выбери собеседника кнопкой сверху";
+
+  if (state.me && state.peer) {
+    state.convoId = dmConvoId(state.me.id, state.peer.id);
+    el("loadingSkeleton").style.display = "block";
+    state.messages = loadDmMessages(state.convoId);
+    renderMessages();
+  } else {
+    state.convoId = null;
+    state.messages = [];
+    renderMessages();
+  }
+  updateChatEnabled();
 }
 
-function renderRooms() {
-  const host = el("roomsChips");
+function updateChatEnabled() {
+  const ok = Boolean(state.me && state.peer);
+  el("textInput").disabled = !ok;
+  el("sendBtn").disabled = !ok;
+}
+
+function renderProfileSelect() {
+  const sel = el("profileSelect");
+  const profiles = readProfiles().sort((a, b) => a.name.localeCompare(b.name, "ru"));
+  sel.innerHTML = "";
+  if (!profiles.length) {
+    const opt = document.createElement("option");
+    opt.value = "";
+    opt.textContent = "Профилей пока нет";
+    sel.appendChild(opt);
+    return;
+  }
+  for (const p of profiles) {
+    const opt = document.createElement("option");
+    opt.value = p.id;
+    opt.textContent = `${p.name} (${p.interests.length})`;
+    if (state.me && p.id === state.me.id) opt.selected = true;
+    sel.appendChild(opt);
+  }
+}
+
+function renderMyInterests() {
+  const host = el("myInterests");
   host.querySelectorAll(".chip").forEach((n) => n.remove());
-
-  for (const r of state.rooms) {
+  const interests = state.me?.interests || [];
+  for (const it of interests) {
     const chip = document.createElement("div");
-    chip.className = "chip" + (r === state.room ? " active" : "");
-    chip.textContent = r;
-    chip.addEventListener("click", () => selectRoom(r));
+    chip.className = "chip";
+    chip.textContent = it;
     host.appendChild(chip);
   }
 }
@@ -186,7 +280,8 @@ function renderMessages() {
 
   for (const m of items) {
     const item = document.createElement("div");
-    item.className = "item";
+    const isMine = Boolean(state.me && m.from_id === state.me.id);
+    item.className = "item" + (isMine ? " mine" : "");
     const bg = avatarStyle(m.user);
     item.innerHTML = `
       <div class="avatar" style="background:${bg}">${initials(m.user)}</div>
@@ -205,169 +300,101 @@ function renderMessages() {
   }
 }
 
-function setPresenceCount(count) {
-  el("presenceText").textContent = `${count} онлайн`;
-  const dot = el("presenceDot");
-  dot.style.background = count > 0 ? "var(--ok)" : "rgba(255,255,255,0.25)";
-  dot.style.boxShadow =
-    count > 0 ? "0 0 0 6px rgba(52, 211, 153, 0.12)" : "0 0 0 6px rgba(255,255,255,0.06)";
+function sharedInterestCount(a, b) {
+  const sa = new Set((a?.interests || []).map(normalizeInterest));
+  const sb = new Set((b?.interests || []).map(normalizeInterest));
+  let shared = 0;
+  for (const x of sa) if (sb.has(x)) shared += 1;
+  return shared;
 }
 
-function computeOnlineCount() {
-  const now = Date.now();
-  for (const [id, info] of state.peers.entries()) {
-    if (!info || now - info.lastSeenMs > 6500) state.peers.delete(id);
+function findBestPeer() {
+  if (!state.me) throw new Error("Сначала зарегистрируйся или войди.");
+  const profiles = readProfiles().filter((p) => p.id !== state.me.id);
+  if (!profiles.length) throw new Error("Нет других профилей. Зарегистрируй ещё один (в другой вкладке).");
+
+  let best = [];
+  let bestScore = -1;
+  for (const p of profiles) {
+    const score = sharedInterestCount(state.me, p);
+    if (score > bestScore) {
+      bestScore = score;
+      best = [p];
+    } else if (score === bestScore) {
+      best.push(p);
+    }
   }
-  let count = 1; // текущая вкладка
-  for (const info of state.peers.values()) {
-    if (info.room === state.room) count += 1;
-  }
-  setPresenceCount(count);
+  if (bestScore <= 0) throw new Error("Не нашёл совпадений по интересам. Добавь интересы или заведи ещё профиль.");
+  const pick = best[Math.floor(Math.random() * best.length)];
+  return { peer: pick, score: bestScore };
 }
 
-function publishPresence() {
-  if (!state.room) return;
-  const payload = { type: "presence", tabId: state.tabId, room: state.room, at: Date.now() };
+function broadcast(type, payload) {
   try {
-    channel?.postMessage(payload);
+    channel?.postMessage({ type, tabId: state.tabId, at: Date.now(), ...payload });
   } catch {}
-}
-
-function publishMessage(msg) {
-  const payload = { type: "message", tabId: state.tabId, message: msg, at: Date.now() };
-  try {
-    channel?.postMessage(payload);
-  } catch {}
-}
-
-function publishRoomsUpdated() {
-  const payload = { type: "rooms", tabId: state.tabId, at: Date.now() };
-  try {
-    channel?.postMessage(payload);
-  } catch {}
-}
-
-function handleIncomingPresence(data) {
-  if (!data || data.tabId === state.tabId) return;
-  state.peers.set(data.tabId, { lastSeenMs: Date.now(), room: data.room || "" });
-  computeOnlineCount();
-}
-
-function handleIncomingMessage(data) {
-  const msg = data?.message;
-  if (!msg || typeof msg !== "object") return;
-  if (msg.room !== state.room) return;
-  state.messages = [msg, ...state.messages].slice(0, 200);
-  renderMessages();
-}
-
-function handleRoomsPing() {
-  state.rooms = readRooms();
-  if (!state.rooms.includes(state.room)) setRoom(state.rooms[0] || "");
-  renderRooms();
-}
-
-async function selectRoom(room) {
-  setRoom(room);
-  renderRooms();
-  el("loadingSkeleton").style.display = "block";
-  state.messages = loadMessages(room);
-  renderMessages();
-  computeOnlineCount();
-}
-
-function loadPrefs() {
-  let preferredRoom = "";
-  try {
-    const r = localStorage.getItem(STORAGE_ROOM_KEY);
-    if (r) preferredRoom = r;
-  } catch {}
-  try {
-    const u = localStorage.getItem(STORAGE_USER_KEY);
-    if (u) el("userInput").value = u;
-  } catch {}
-  return preferredRoom;
-}
-
-function ensureRoomsSeeded() {
-  const existing = safeJsonParse(localStorage.getItem(STORAGE_ROOMS_KEY) || "null", null);
-  if (Array.isArray(existing) && existing.length) return;
-  writeRooms(DEFAULT_ROOMS);
 }
 
 function main() {
-  setConnStatus();
   showError("");
-  ensureRoomsSeeded();
+  updateChatEnabled();
+  renderProfileSelect();
 
-  const preferredRoom = loadPrefs();
-  const initialUser = (el("userInput").value || "").trim() || "Гость";
-  setUser(initialUser);
+  // автологин по сохранённому профилю
+  const savedId = getCurrentProfileId();
+  const profiles = readProfiles();
+  const saved = profiles.find((p) => p.id === savedId) || null;
+  if (saved) setMe(saved);
 
-  state.rooms = readRooms();
-  const firstRoom = state.rooms[0] || "Музыка";
-  const initialRoom = state.rooms.includes(preferredRoom) ? preferredRoom : firstRoom;
-  setRoom(initialRoom);
-  renderRooms();
-  selectRoom(initialRoom);
-
-  channel?.addEventListener("message", (ev) => {
-    const data = ev.data;
-    if (!data || typeof data !== "object") return;
-    if (data.type === "presence") return handleIncomingPresence(data);
-    if (data.type === "message") return handleIncomingMessage(data);
-    if (data.type === "rooms") return handleRoomsPing();
-  });
-
-  window.addEventListener("storage", (ev) => {
-    if (ev.key === STORAGE_MESSAGES_KEY && state.room) {
-      state.messages = loadMessages(state.room);
-      renderMessages();
-    }
-    if (ev.key === STORAGE_ROOMS_KEY) handleRoomsPing();
-  });
-
-  el("roomCreateForm").addEventListener("submit", (ev) => {
+  el("registerForm").addEventListener("submit", (ev) => {
     ev.preventDefault();
     showError("");
-    const name = el("roomCreateInput").value.trim().replace(/\s+/g, " ");
-    if (!name) return;
-    if (name.length > 60) return showError("Слишком длинное название комнаты.");
-
-    state.rooms = readRooms();
-    if (!state.rooms.includes(name)) {
-      const next = [...state.rooms, name].sort((a, b) => a.localeCompare(b, "ru"));
-      writeRooms(next);
-      state.rooms = next;
-      publishRoomsUpdated();
+    try {
+      const p = createProfile(el("regName").value, el("regInterests").value);
+      setMe(p);
+      broadcast("profiles_updated", {});
+    } catch (e) {
+      showError(e?.message || "Ошибка регистрации");
     }
-    el("roomCreateInput").value = "";
-    selectRoom(name);
   });
 
-  el("userInput").addEventListener("change", () => {
-    const u = el("userInput").value.trim() || "Гость";
-    setUser(u);
+  el("loginForm").addEventListener("submit", (ev) => {
+    ev.preventDefault();
+    showError("");
+    const id = el("profileSelect").value;
+    const p = readProfiles().find((x) => x.id === id) || null;
+    if (!p) return showError("Выбери профиль.");
+    setMe(p);
+    broadcast("profiles_updated", {});
+  });
+
+  el("findBtn").addEventListener("click", () => {
+    showError("");
+    try {
+      const res = findBestPeer();
+      setPeer(res.peer, res.score);
+      broadcast("peer_selected", { meId: state.me.id, peerId: res.peer.id });
+    } catch (e) {
+      showError(e?.message || "Не удалось найти собеседника");
+    }
   });
 
   el("msgForm").addEventListener("submit", (ev) => {
     ev.preventDefault();
     showError("");
+    if (!state.me) return showError("Сначала зарегистрируйся или войди.");
+    if (!state.peer || !state.convoId) return showError("Нажми «Найти собеседника».");
 
-    const user = el("userInput").value.trim();
     const text = el("textInput").value.trim();
-    if (!state.room) return showError("Выбери комнату.");
-    if (!user) return showError("Укажи ник.");
     if (!text) return showError("Напиши сообщение.");
 
     setSending(true);
     try {
-      setUser(user);
-      const msg = addMessage(state.room, user, text);
+      const msg = addDmMessage(state.convoId, state.me, state.peer, text);
       el("textInput").value = "";
       state.messages = [msg, ...state.messages].slice(0, 200);
       renderMessages();
-      publishMessage(msg);
+      broadcast("dm_message", { convoId: state.convoId, message: msg });
     } catch (e) {
       showError(e?.message || "Ошибка отправки");
     } finally {
@@ -375,13 +402,32 @@ function main() {
     }
   });
 
-  // presence heartbeat
-  publishPresence();
-  setInterval(() => {
-    publishPresence();
-    computeOnlineCount();
-  }, 2000);
+  channel?.addEventListener("message", (ev) => {
+    const data = ev.data;
+    if (!data || typeof data !== "object") return;
+    if (data.type === "profiles_updated") {
+      renderProfileSelect();
+      return;
+    }
+    if (data.type === "dm_message") {
+      if (!state.convoId || data.convoId !== state.convoId) return;
+      const msg = data.message;
+      if (!msg || typeof msg !== "object") return;
+      // чтобы не дублировать свои же сообщения при broadcast
+      if (data.tabId === state.tabId) return;
+      state.messages = [msg, ...state.messages].slice(0, 200);
+      renderMessages();
+      return;
+    }
+  });
+
+  window.addEventListener("storage", (ev) => {
+    if (ev.key === STORAGE_PROFILES_KEY) renderProfileSelect();
+    if (!channel && ev.key === STORAGE_DM_MESSAGES_KEY && state.convoId) {
+      state.messages = loadDmMessages(state.convoId);
+      renderMessages();
+    }
+  });
 }
 
 main();
-

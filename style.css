@@ -121,6 +121,12 @@ body {
   backdrop-filter: blur(10px);
 }
 
+.topActions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .hero {
   margin-top: 16px;
   display: grid;
@@ -262,6 +268,10 @@ body {
   gap: 10px;
 }
 
+.panelHeader.compact {
+  align-items: center;
+}
+
 .panelTitle {
   font-weight: 900;
   font-size: 16px;
@@ -277,6 +287,29 @@ body {
   margin-top: 10px;
   display: grid;
   gap: 10px;
+}
+
+.profileGrid {
+  margin-top: 10px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+@media (max-width: 860px) {
+  .profileGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.profileCard {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(0, 0, 0, 0.16);
 }
 
 .chips {
@@ -453,6 +486,11 @@ body {
   transform: translateY(-1px);
   background: rgba(0, 0, 0, 0.16);
   border-color: rgba(255, 255, 255, 0.18);
+}
+
+.item.mine {
+  border-color: rgba(41, 211, 255, 0.28);
+  background: rgba(41, 211, 255, 0.08);
 }
 
 .avatar {
